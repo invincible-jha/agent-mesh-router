@@ -1,0 +1,11 @@
+# CODEOWNERS — require review from AumOS maintainers for all changes.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global default: all files require maintainer review.
+* @aumos-ai/maintainers
+
+# CI and release workflows require additional scrutiny.
+.github/workflows/ @aumos-ai/maintainers @aumos-ai/infra
+
+# pyproject.toml changes affect all consumers.
+pyproject.toml @aumos-ai/maintainers
