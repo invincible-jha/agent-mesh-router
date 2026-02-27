@@ -39,11 +39,21 @@ from agent_mesh_router.backpressure.monitor import (
     QueueMetrics,
 )
 from agent_mesh_router.backpressure.throttle import AdaptiveThrottle
+from agent_mesh_router.backpressure.task_queue import (
+    BackpressureQueue,
+    QueueFullError,
+    QueueEmptyError,
+    QueueStats,
+)
 
 __all__ = [
     "AdaptiveThrottle",
     "BackpressureMonitor",
+    "BackpressureQueue",
     "CRITICAL_THRESHOLD",
+    "QueueEmptyError",
+    "QueueFullError",
     "QueueMetrics",
+    "QueueStats",
     "WARN_THRESHOLD",
 ]

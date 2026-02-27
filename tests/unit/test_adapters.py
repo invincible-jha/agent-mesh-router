@@ -64,6 +64,7 @@ class TestHttpTransport:
         from agent_mesh_router.adapters.http import HttpTransport
 
         response = self._make_response(200)
+        response.text = "OK"
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=response)
 
@@ -74,7 +75,8 @@ class TestHttpTransport:
             transport = HttpTransport("http://localhost:8080", max_retries=0)
             result = await transport.send(_envelope())
 
-        assert result == {"status_code": 200}
+        assert result["status_code"] == 200
+        assert result["raw_body"] == "OK"
 
     @pytest.mark.asyncio
     async def test_send_4xx_permanent_failure(self) -> None:

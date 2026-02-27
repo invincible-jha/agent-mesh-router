@@ -55,6 +55,8 @@ from __future__ import annotations
 
 __version__: str = "0.1.0"
 
+from agent_mesh_router.convenience import Router
+
 # ------------------------------------------------------------------
 # messages
 # ------------------------------------------------------------------
@@ -126,6 +128,14 @@ from agent_mesh_router.workflows.parallel import ParallelWorkflow
 from agent_mesh_router.workflows.hierarchical import HierarchicalWorkflow
 from agent_mesh_router.workflows.competitive import CompetitiveWorkflow
 from agent_mesh_router.workflows.consensus import ConsensusWorkflow
+from agent_mesh_router.workflows.yaml_workflow import (
+    YAMLParseError,
+    YAMLValidationError,
+    YAMLWorkflow,
+    YAMLWorkflowError,
+    YAMLWorkflowResult,
+    YAMLWorkflowStep,
+)
 
 # ------------------------------------------------------------------
 # backpressure
@@ -207,6 +217,7 @@ from agent_mesh_router.resilience.health_check import (
 
 __all__: list[str] = [
     "__version__",
+    "Router",
     # messages
     "HandoffMetrics",
     "MessageEnvelope",
@@ -252,6 +263,12 @@ __all__: list[str] = [
     "WorkflowResult",
     "WorkflowStatus",
     "WorkflowStep",
+    "YAMLParseError",
+    "YAMLValidationError",
+    "YAMLWorkflow",
+    "YAMLWorkflowError",
+    "YAMLWorkflowResult",
+    "YAMLWorkflowStep",
     # backpressure
     "AdaptiveThrottle",
     "BackpressureMonitor",

@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 import click
 from rich.console import Console
@@ -70,7 +69,7 @@ def health_command(endpoints_file: Path, timeout: float) -> None:
 
     try:
         raw_text = endpoints_file.read_text(encoding="utf-8")
-        raw_data: Any = json.loads(raw_text)
+        raw_data: object = json.loads(raw_text)
     except json.JSONDecodeError as exc:
         console.print(f"[bold red]ERROR[/bold red]: Failed to parse JSON: {exc}")
         sys.exit(1)

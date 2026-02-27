@@ -42,7 +42,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable
+from typing import Callable
 
 from agent_mesh_router.resilience.load_balancer import ServiceEndpoint
 
@@ -134,7 +134,7 @@ class HealthCheckResult:
     status: HealthStatus
     latency_ms: float
     checked_at: datetime
-    details: dict[str, Any] = field(default_factory=dict)
+    details: dict[str, object] = field(default_factory=dict)
 
 
 class HealthChecker:
@@ -188,7 +188,7 @@ class HealthChecker:
             Result of the probe.
         """
         start = time.monotonic()
-        error_details: dict[str, Any] = {}
+        error_details: dict[str, object] = {}
         probe_failed = False
 
         try:

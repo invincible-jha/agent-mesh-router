@@ -172,8 +172,9 @@ class HttpTransport:
                     )
                     try:
                         return response.json()
-                    except Exception:
-                        return {"status_code": response.status_code}
+                    except (ValueError, KeyError) as exc:
+                        logger.warning("Failed to parse JSON response: %s", exc)
+                        return {"status_code": response.status_code, "raw_body": response.text[:500]}
 
                 # Treat 4xx as permanent failures (no retry)
                 if 400 <= response.status_code < 500:

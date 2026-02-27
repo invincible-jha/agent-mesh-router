@@ -43,6 +43,14 @@ from agent_mesh_router.workflows.consensus import ConsensusWorkflow
 from agent_mesh_router.workflows.hierarchical import HierarchicalWorkflow
 from agent_mesh_router.workflows.parallel import ParallelWorkflow
 from agent_mesh_router.workflows.sequential import SequentialWorkflow
+from agent_mesh_router.workflows.yaml_workflow import (
+    YAMLParseError,
+    YAMLValidationError,
+    YAMLWorkflow,
+    YAMLWorkflowError,
+    YAMLWorkflowResult,
+    YAMLWorkflowStep,
+)
 
 __all__ = [
     "CompetitiveWorkflow",
@@ -55,4 +63,11 @@ __all__ = [
     "WorkflowResult",
     "WorkflowStatus",
     "WorkflowStep",
+    # YAML workflow
+    "YAMLParseError",
+    "YAMLValidationError",
+    "YAMLWorkflow",
+    "YAMLWorkflowError",
+    "YAMLWorkflowResult",
+    "YAMLWorkflowStep",
 ]

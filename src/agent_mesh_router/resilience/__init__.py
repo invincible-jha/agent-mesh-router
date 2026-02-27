@@ -62,6 +62,16 @@ from agent_mesh_router.resilience.load_balancer import (
     NoHealthyEndpointError,
     ServiceEndpoint,
 )
+from agent_mesh_router.resilience.fallback_registry import (
+    CacheFallbackHandler,
+    FallbackHandler,
+    FallbackRegistry,
+    StaticFallbackHandler,
+)
+from agent_mesh_router.resilience.recovery_tester import (
+    RecoveryTestResult,
+    RecoveryTester,
+)
 from agent_mesh_router.resilience.retry import (
     RetryConfig,
     RetryExhaustedError,
@@ -88,4 +98,12 @@ __all__: list[str] = [
     "HealthCheckResult",
     "HealthChecker",
     "HealthStatus",
+    # fallback_registry
+    "FallbackHandler",
+    "StaticFallbackHandler",
+    "CacheFallbackHandler",
+    "FallbackRegistry",
+    # recovery_tester
+    "RecoveryTestResult",
+    "RecoveryTester",
 ]
