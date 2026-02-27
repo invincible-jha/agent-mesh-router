@@ -52,9 +52,8 @@ import agent_mesh_router
 
 ## Enterprise Upgrade
 
-The open-source edition provides the core foundation. For production
-deployments requiring SLA-backed support, advanced integrations, and the full
-AgentMesh platform, see [docs/UPGRADE_TO_AgentMesh.md](docs/UPGRADE_TO_AgentMesh.md).
+For production deployments requiring SLA-backed support and advanced
+integrations, contact the maintainers or see the commercial extensions documentation.
 
 ## Contributing
 

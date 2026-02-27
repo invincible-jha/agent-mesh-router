@@ -6,7 +6,7 @@ and an active gRPC channel, which are beyond the scope of this library's
 core dependencies.
 
 Third-party integrators should subclass ``GrpcTransport``, inject their
-generated stub (e.g. ``AgentMeshStub``), and implement ``send``.
+generated stub (e.g. ``MeshRouterStub``), and implement ``send``.
 
 Optional dependency
 -------------------
@@ -23,12 +23,12 @@ Example
     # In your integration package:
     import grpc
     from agent_mesh_router.adapters.grpc_adapter import GrpcTransport
-    from my_proto import AgentMeshStub, EnvelopeProto
+    from my_proto import MeshRouterStub, EnvelopeProto
 
     class MyGrpcTransport(GrpcTransport):
         def __init__(self, target: str) -> None:
             channel = grpc.aio.insecure_channel(target)
-            self._stub = AgentMeshStub(channel)
+            self._stub = MeshRouterStub(channel)
 
         async def send(self, envelope):
             proto = EnvelopeProto(...)

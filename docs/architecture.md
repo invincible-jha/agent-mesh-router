@@ -21,7 +21,7 @@ agent-mesh-router/
 
 agent-mesh-router uses a decorator-based plugin registry backed by
 ``importlib.metadata`` entry-points. This allows third-party packages
-(including the AgentMesh enterprise edition) to extend the system
+(including commercial extensions) to extend the system
 without modifying the core.
 
 ### Registration at import time

@@ -178,6 +178,33 @@ from agent_mesh_router.plugins.registry import (
     PluginRegistry,
 )
 
+# ------------------------------------------------------------------
+# resilience
+# ------------------------------------------------------------------
+from agent_mesh_router.resilience.circuit_breaker import (
+    CircuitBreaker,
+    CircuitBreakerConfig,
+    CircuitBreakerOpenError,
+    CircuitState,
+)
+from agent_mesh_router.resilience.retry import (
+    RetryConfig,
+    RetryExhaustedError,
+    RetryPolicy,
+)
+from agent_mesh_router.resilience.load_balancer import (
+    LoadBalancer as ResilienceLoadBalancer,
+    LoadBalancerStrategy,
+    NoHealthyEndpointError,
+    ServiceEndpoint,
+)
+from agent_mesh_router.resilience.health_check import (
+    HealthCheckConfig,
+    HealthCheckResult,
+    HealthChecker,
+    HealthStatus,
+)
+
 __all__: list[str] = [
     "__version__",
     # messages
@@ -242,4 +269,20 @@ __all__: list[str] = [
     "PluginAlreadyRegisteredError",
     "PluginNotFoundError",
     "PluginRegistry",
+    # resilience
+    "CircuitBreaker",
+    "CircuitBreakerConfig",
+    "CircuitBreakerOpenError",
+    "CircuitState",
+    "RetryConfig",
+    "RetryExhaustedError",
+    "RetryPolicy",
+    "ResilienceLoadBalancer",
+    "LoadBalancerStrategy",
+    "NoHealthyEndpointError",
+    "ServiceEndpoint",
+    "HealthCheckConfig",
+    "HealthCheckResult",
+    "HealthChecker",
+    "HealthStatus",
 ]

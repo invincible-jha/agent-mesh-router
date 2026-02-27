@@ -13,6 +13,8 @@ from __future__ import annotations
 import click
 from rich.console import Console
 
+from agent_mesh_router.cli.resilience_commands import resilience_group
+
 console = Console()
 
 
@@ -35,6 +37,9 @@ def plugins_command() -> None:
     """List all registered plugins loaded from entry-points."""
     console.print("[bold]Registered plugins:[/bold]")
     console.print("  (No plugins registered. Install a plugin package to see entries here.)")
+
+
+cli.add_command(resilience_group)
 
 
 if __name__ == "__main__":
