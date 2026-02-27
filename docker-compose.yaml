@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  agent-mesh-router:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aumos/agent-mesh-router:latest
+    container_name: agent-mesh-router
+    ports:
+      - "8081:8081"
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8081/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
