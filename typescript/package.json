@@ -1,0 +1,36 @@
+{
+  "name": "@aumos/agent-mesh-router",
+  "version": "0.1.0",
+  "description": "TypeScript client for the AumOS agent-mesh-router — multi-agent messaging, workflow orchestration, circuit breakers, and topology inspection",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "aumos",
+    "agent-mesh-router",
+    "mesh",
+    "routing",
+    "circuit-breaker",
+    "workflow",
+    "multi-agent",
+    "typescript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aumos-ai/agent-mesh-router"
+  }
+}
