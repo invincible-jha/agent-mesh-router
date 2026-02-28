@@ -1,0 +1,12 @@
+apiVersion: v2
+name: agent-mesh-router
+description: Multi-agent communication and task routing
+type: application
+version: 0.1.0
+appVersion: "0.2.0"
+home: https://github.com/invincible-jha/agent-mesh-router
+sources:
+  - https://github.com/invincible-jha/agent-mesh-router
+maintainers:
+  - name: AumOS
+    url: https://github.com/invincible-jha
