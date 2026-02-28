@@ -42,7 +42,6 @@ import type {
   MeshTopology,
   ResolveConflictRequest,
   RouteTaskRequest,
-  RoutingConfig,
   SendMessageRequest,
 } from "./types.js";
 
@@ -255,15 +254,3 @@ export function createAgentMeshRouterClient(
   };
 }
 
-/** Re-export config and key types for convenience. */
-export type {
-  AgentRoute,
-  CircuitBreakerStatus,
-  ConflictResolution,
-  Message,
-  MeshTopology,
-  ResolveConflictRequest,
-  RouteTaskRequest,
-  RoutingConfig,
-  SendMessageRequest,
-};
