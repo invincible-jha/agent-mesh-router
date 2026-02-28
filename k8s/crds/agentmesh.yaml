@@ -1,0 +1,210 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agentmeshes.aumos.ai
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  labels:
+    app.kubernetes.io/name: aumos-operator
+    app.kubernetes.io/component: crd
+spec:
+  group: aumos.ai
+  names:
+    kind: AgentMesh
+    listKind: AgentMeshList
+    plural: agentmeshes
+    singular: agentmesh
+    shortNames:
+      - amesh
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: "AgentMesh defines a coordinated group of Agent CRs with shared topology, circuit-breaking, and observability."
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - agents
+                - topology
+              properties:
+                agents:
+                  type: array
+                  minItems: 1
+                  description: "Ordered list of agents participating in this mesh."
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - ref
+                    properties:
+                      name:
+                        type: string
+                        description: "Logical name for this agent within the mesh (used in routing rules)."
+                      ref:
+                        type: string
+                        description: "Name of an Agent CR in the same namespace."
+                      role:
+                        type: string
+                        enum: ["leader", "worker", "reviewer", "router"]
+                        default: "worker"
+                        description: "Functional role that governs message-routing priority in this mesh."
+                      weight:
+                        type: integer
+                        default: 1
+                        minimum: 1
+                        maximum: 100
+                        description: "Relative routing weight for load-balanced topologies."
+                topology:
+                  type: string
+                  enum: ["sequential", "parallel", "hierarchical", "competitive", "consensus"]
+                  description: "Execution topology that controls how tasks flow between agents."
+                circuitBreaker:
+                  type: object
+                  description: "Per-mesh circuit-breaker configuration. When open, requests are rejected until recovery."
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    failureThreshold:
+                      type: integer
+                      default: 5
+                      minimum: 1
+                      maximum: 100
+                      description: "Consecutive failures required to open the circuit."
+                    recoveryTimeout:
+                      type: string
+                      default: "30s"
+                      description: "Duration the circuit remains open before attempting half-open probe (e.g., '30s', '2m')."
+                    successThreshold:
+                      type: integer
+                      default: 2
+                      minimum: 1
+                      description: "Consecutive successes in half-open state needed to close the circuit."
+                observability:
+                  type: object
+                  description: "Observability features applied uniformly to all agents in the mesh."
+                  properties:
+                    tracing:
+                      type: boolean
+                      default: true
+                      description: "Enable OpenTelemetry distributed tracing with propagated trace context."
+                    metrics:
+                      type: boolean
+                      default: true
+                      description: "Expose Prometheus metrics for message counts, latency, and error rates."
+                    costTracking:
+                      type: boolean
+                      default: true
+                      description: "Aggregate token and USD cost metrics across all mesh participants."
+                    logLevel:
+                      type: string
+                      enum: ["debug", "info", "warning", "error"]
+                      default: "info"
+                routing:
+                  type: object
+                  description: "Routing configuration for inter-agent message delivery."
+                  properties:
+                    retryPolicy:
+                      type: object
+                      properties:
+                        maxAttempts:
+                          type: integer
+                          default: 3
+                          minimum: 1
+                          maximum: 10
+                        backoffSeconds:
+                          type: number
+                          default: 1.0
+                          minimum: 0.1
+                        backoffMultiplier:
+                          type: number
+                          default: 2.0
+                    timeoutSeconds:
+                      type: integer
+                      default: 30
+                      minimum: 1
+                      maximum: 3600
+                      description: "Per-hop timeout before the circuit breaker registers a failure."
+                    deadLetterQueue:
+                      type: boolean
+                      default: true
+                      description: "Capture undeliverable messages in a dead-letter queue for inspection."
+                policy:
+                  type: string
+                  description: "Name of an AgentPolicy CR applied to all agents in the mesh (overrides individual agent policies)."
+            status:
+              type: object
+              description: "AgentMeshStatus reflects the observed state of the mesh."
+              properties:
+                phase:
+                  type: string
+                  enum: ["Pending", "Forming", "Ready", "Degraded", "Failed"]
+                  description: "Current operational phase of the mesh."
+                activeAgents:
+                  type: integer
+                  description: "Number of agents currently in Running phase."
+                totalMessages:
+                  type: integer
+                  description: "Cumulative messages routed since mesh creation."
+                totalCost:
+                  type: string
+                  description: "Cumulative USD cost across all agents since mesh creation."
+                circuitBreakerState:
+                  type: string
+                  enum: ["closed", "open", "half-open"]
+                  description: "Current state of the mesh-level circuit breaker."
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                lastUpdated:
+                  type: string
+                  format: date-time
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Topology
+          type: string
+          jsonPath: .spec.topology
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Active
+          type: integer
+          jsonPath: .status.activeAgents
+        - name: Circuit
+          type: string
+          jsonPath: .status.circuitBreakerState
+        - name: Cost
+          type: string
+          jsonPath: .status.totalCost
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

@@ -1,0 +1,129 @@
+---
+# AgentPolicy enforcing EU AI Act + GDPR compliance with cost guardrails.
+# The policy is created first, then referenced by the Agent.
+apiVersion: aumos.ai/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: eu-compliant-policy
+  namespace: aumos-system
+  labels:
+    app.kubernetes.io/name: eu-compliant-policy
+    app.kubernetes.io/component: policy
+spec:
+  # Only permit models that have completed EU AI Act conformity assessment.
+  allowedModels:
+    - claude-3-5-sonnet-20241022
+    - claude-3-5-haiku-20241022
+    - gpt-4o
+    - gpt-4o-mini
+
+  allowedProviders:
+    - anthropic
+    - openai
+
+  # Hard cost caps.
+  maxCostPerDay: "25.00"
+  maxCostPerMonth: "500.00"
+  maxTokensPerDay: 2000000
+
+  # Required compliance frameworks.
+  requiredCompliance:
+    - eu-ai-act
+    - gdpr
+
+  # Tools the agent is allowed to invoke.
+  allowedTools:
+    - web-search
+    - document-retrieval
+    - code-execution
+
+  # Reject prompts that match these patterns (prompt injection defences).
+  blockedPatterns:
+    - pattern: "(?i)ignore\\s+(all\\s+)?(previous|prior|above)\\s+instructions?"
+      description: "Classic prompt injection override attempt."
+      severity: critical
+    - pattern: "(?i)you\\s+are\\s+now\\s+(a\\s+)?(?!an?\\s+AI)(DAN|jailbreak|unrestricted)"
+      description: "Jailbreak persona injection."
+      severity: critical
+    - pattern: "(?i)(\\b(ssn|social\\s+security)\\b.*\\b\\d{3}-\\d{2}-\\d{4}\\b)"
+      description: "PII: US Social Security Number pattern."
+      severity: high
+
+  auditLevel: full
+
+  dataResidency:
+    allowedRegions:
+      - eu-west-1
+      - eu-central-1
+      - eu-north-1
+    blockCrossRegion: true
+
+  rateLimits:
+    requestsPerMinute: 60
+    tokensPerMinute: 100000
+    burstMultiplier: 1.5
+
+  trustRequirements:
+    minTrustLevel: verified
+    requireAttestation: false
+
+  enforcement:
+    onViolation: block
+    alertOnSeverity:
+      - high
+      - critical
+
+---
+# Agent that binds to the EU compliance policy.
+apiVersion: aumos.ai/v1alpha1
+kind: Agent
+metadata:
+  name: eu-compliant-agent
+  namespace: aumos-system
+  labels:
+    app.kubernetes.io/name: eu-compliant-agent
+    app.kubernetes.io/component: agent
+    compliance.aumos.ai/framework: eu-ai-act
+spec:
+  image: ghcr.io/aumos-ai/agent-base:latest
+
+  capabilities:
+    - text-generation
+    - document-analysis
+    - web-search
+
+  replicas: 2
+
+  model:
+    provider: anthropic
+    name: claude-3-5-sonnet-20241022
+    maxTokens: 8192
+
+  budget:
+    maxCostPerHour: "1.00"
+    maxTokensPerHour: 80000
+    alertThreshold: 0.75
+
+  trustLevel: verified
+
+  # Reference the policy created above.
+  policy: eu-compliant-policy
+
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+  env:
+    - name: ANTHROPIC_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: aumos-provider-secrets
+          key: anthropic-api-key
+    - name: DATA_REGION
+      value: "eu-west-1"
+    - name: AUDIT_LOG_ENDPOINT
+      value: "https://audit.internal.example.com/v1/events"

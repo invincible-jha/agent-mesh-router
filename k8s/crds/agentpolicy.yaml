@@ -1,0 +1,212 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agentpolicies.aumos.ai
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  labels:
+    app.kubernetes.io/name: aumos-operator
+    app.kubernetes.io/component: crd
+spec:
+  group: aumos.ai
+  names:
+    kind: AgentPolicy
+    listKind: AgentPolicyList
+    plural: agentpolicies
+    singular: agentpolicy
+    shortNames:
+      - apol
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: "AgentPolicy defines compliance, cost, and safety constraints applied to Agent and AgentMesh resources."
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              properties:
+                allowedModels:
+                  type: array
+                  description: "Allowlist of model names permitted for use. Empty list means no restriction."
+                  items:
+                    type: string
+                  example: ["gpt-4o", "claude-3-5-sonnet-20241022", "gemini-1.5-pro"]
+                allowedProviders:
+                  type: array
+                  description: "Allowlist of provider identifiers. Empty list means no restriction."
+                  items:
+                    type: string
+                    enum: ["openai", "anthropic", "google", "azure", "local"]
+                maxCostPerDay:
+                  type: string
+                  pattern: "^[0-9]+(\\.[0-9]+)?$"
+                  description: "Maximum cumulative USD cost per 24-hour window. Operator suspends agents when exceeded."
+                maxCostPerMonth:
+                  type: string
+                  pattern: "^[0-9]+(\\.[0-9]+)?$"
+                  description: "Maximum cumulative USD cost per calendar month."
+                maxTokensPerDay:
+                  type: integer
+                  minimum: 1000
+                  description: "Maximum total tokens consumed per 24-hour window across all bound agents."
+                requiredCompliance:
+                  type: array
+                  description: "Compliance frameworks that must be satisfied. The operator enforces corresponding controls."
+                  items:
+                    type: string
+                    enum: ["eu-ai-act", "gdpr", "hipaa", "soc2", "iso27001", "nist-ai-rmf"]
+                allowedTools:
+                  type: array
+                  description: "Allowlist of tool/function names agents may invoke. Empty list means no tools permitted."
+                  items:
+                    type: string
+                blockedPatterns:
+                  type: array
+                  description: "List of regular expressions matched against prompts and completions. Matching content is rejected and logged."
+                  items:
+                    type: object
+                    required:
+                      - pattern
+                    properties:
+                      pattern:
+                        type: string
+                        description: "RE2-compatible regular expression."
+                      description:
+                        type: string
+                        description: "Human-readable explanation of what this pattern blocks."
+                      severity:
+                        type: string
+                        enum: ["low", "medium", "high", "critical"]
+                        default: "medium"
+                auditLevel:
+                  type: string
+                  enum: ["none", "basic", "full"]
+                  default: "basic"
+                  description: "Audit logging verbosity. 'full' records every request and response payload."
+                dataResidency:
+                  type: object
+                  description: "Data residency constraints for GDPR and similar frameworks."
+                  properties:
+                    allowedRegions:
+                      type: array
+                      description: "Cloud regions where data may be processed or stored."
+                      items:
+                        type: string
+                    blockCrossRegion:
+                      type: boolean
+                      default: false
+                      description: "Reject requests that would route data outside allowedRegions."
+                rateLimits:
+                  type: object
+                  description: "Rate limiting applied per agent instance."
+                  properties:
+                    requestsPerMinute:
+                      type: integer
+                      minimum: 1
+                      description: "Maximum requests per minute per agent replica."
+                    tokensPerMinute:
+                      type: integer
+                      minimum: 100
+                      description: "Maximum tokens per minute per agent replica."
+                    burstMultiplier:
+                      type: number
+                      default: 2.0
+                      minimum: 1.0
+                      maximum: 10.0
+                      description: "Burst allowance as a multiplier of the steady-state rate."
+                trustRequirements:
+                  type: object
+                  description: "Minimum trust-level gates before operations are permitted."
+                  properties:
+                    minTrustLevel:
+                      type: string
+                      enum: ["untrusted", "basic", "verified", "trusted"]
+                      default: "basic"
+                      description: "Agents below this level cannot execute when bound to this policy."
+                    requireAttestation:
+                      type: boolean
+                      default: false
+                      description: "Require a valid identity attestation token before the agent starts."
+                enforcement:
+                  type: object
+                  description: "Enforcement behaviour when a policy violation is detected."
+                  properties:
+                    onViolation:
+                      type: string
+                      enum: ["warn", "block", "suspend", "terminate"]
+                      default: "block"
+                      description: "Action taken when a constraint is violated."
+                    notifyWebhook:
+                      type: string
+                      description: "URL to POST violation events (JSON payload)."
+                    alertOnSeverity:
+                      type: array
+                      description: "Severities that trigger a Kubernetes Event and webhook notification."
+                      items:
+                        type: string
+                        enum: ["low", "medium", "high", "critical"]
+            status:
+              type: object
+              description: "AgentPolicyStatus reflects the observed state of the policy."
+              properties:
+                boundAgents:
+                  type: integer
+                  description: "Number of Agent CRs currently bound to this policy."
+                boundMeshes:
+                  type: integer
+                  description: "Number of AgentMesh CRs currently bound to this policy."
+                violationsTotal:
+                  type: integer
+                  description: "Cumulative policy violations detected since creation."
+                lastViolation:
+                  type: string
+                  format: date-time
+                  description: "Timestamp of the most recent policy violation event."
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Audit
+          type: string
+          jsonPath: .spec.auditLevel
+        - name: OnViolation
+          type: string
+          jsonPath: .spec.enforcement.onViolation
+        - name: BoundAgents
+          type: integer
+          jsonPath: .status.boundAgents
+        - name: Violations
+          type: integer
+          jsonPath: .status.violationsTotal
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

@@ -1,0 +1,217 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agents.aumos.ai
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  labels:
+    app.kubernetes.io/name: aumos-operator
+    app.kubernetes.io/component: crd
+spec:
+  group: aumos.ai
+  names:
+    kind: Agent
+    listKind: AgentList
+    plural: agents
+    singular: agent
+    shortNames:
+      - ag
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: "Agent is the Schema for AumOS agent lifecycle management."
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - image
+                - capabilities
+              properties:
+                image:
+                  type: string
+                  description: "Container image for the agent workload."
+                capabilities:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                  description: "List of capability identifiers this agent exposes (e.g., 'text-generation', 'code-review')."
+                replicas:
+                  type: integer
+                  default: 1
+                  minimum: 0
+                  maximum: 10
+                  description: "Number of agent pod replicas. Set to 0 to suspend without deleting state."
+                model:
+                  type: object
+                  description: "Model configuration for the agent's LLM backend."
+                  properties:
+                    provider:
+                      type: string
+                      enum: ["openai", "anthropic", "google", "azure", "local"]
+                      description: "LLM provider identifier. Must match a configured provider secret."
+                    name:
+                      type: string
+                      description: "Model name as accepted by the provider API."
+                    maxTokens:
+                      type: integer
+                      default: 4096
+                      minimum: 256
+                      maximum: 200000
+                      description: "Maximum tokens per request."
+                budget:
+                  type: object
+                  description: "Cost and token budget constraints enforced by the operator."
+                  properties:
+                    maxCostPerHour:
+                      type: string
+                      pattern: "^[0-9]+(\\.[0-9]+)?$"
+                      description: "Maximum USD cost per hour (e.g., '1.00'). Operator suspends agent when exceeded."
+                    maxTokensPerHour:
+                      type: integer
+                      minimum: 1000
+                      description: "Maximum tokens consumed per hour across all replicas."
+                    alertThreshold:
+                      type: number
+                      default: 0.8
+                      minimum: 0.1
+                      maximum: 1.0
+                      description: "Fraction of budget at which a warning event is emitted (0.0–1.0)."
+                trustLevel:
+                  type: string
+                  enum: ["untrusted", "basic", "verified", "trusted"]
+                  default: "basic"
+                  description: "Trust level governs inter-agent communication permissions and policy enforcement."
+                policy:
+                  type: string
+                  description: "Name of an AgentPolicy CR in the same namespace to apply to this agent."
+                env:
+                  type: array
+                  description: "Additional environment variables injected into the agent container."
+                  items:
+                    type: object
+                    required:
+                      - name
+                    properties:
+                      name:
+                        type: string
+                      value:
+                        type: string
+                      valueFrom:
+                        type: object
+                        properties:
+                          secretKeyRef:
+                            type: object
+                            required:
+                              - name
+                              - key
+                            properties:
+                              name:
+                                type: string
+                              key:
+                                type: string
+                          configMapKeyRef:
+                            type: object
+                            required:
+                              - name
+                              - key
+                            properties:
+                              name:
+                                type: string
+                              key:
+                                type: string
+                resources:
+                  type: object
+                  description: "Kubernetes resource requests and limits for each agent pod."
+                  properties:
+                    requests:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                        memory:
+                          type: string
+                    limits:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                        memory:
+                          type: string
+            status:
+              type: object
+              description: "AgentStatus reflects the observed state of the Agent."
+              properties:
+                phase:
+                  type: string
+                  enum: ["Pending", "Running", "Suspended", "Failed", "Terminated"]
+                  description: "Current lifecycle phase of the agent."
+                lastHeartbeat:
+                  type: string
+                  format: date-time
+                  description: "Timestamp of the last successful health check from the agent pod."
+                totalCost:
+                  type: string
+                  description: "Cumulative USD cost incurred since creation."
+                trustScore:
+                  type: number
+                  description: "Runtime trust score (0.0–1.0) computed from observed behaviour."
+                activeConnections:
+                  type: integer
+                  description: "Number of active peer connections in the mesh."
+                conditions:
+                  type: array
+                  description: "Standard Kubernetes condition list for the agent."
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                readyReplicas:
+                  type: integer
+                  description: "Number of agent replicas currently in Ready state."
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Trust
+          type: string
+          jsonPath: .spec.trustLevel
+        - name: Replicas
+          type: integer
+          jsonPath: .spec.replicas
+        - name: Ready
+          type: integer
+          jsonPath: .status.readyReplicas
+        - name: Cost
+          type: string
+          jsonPath: .status.totalCost
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

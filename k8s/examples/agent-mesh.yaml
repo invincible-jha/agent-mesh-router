@@ -1,0 +1,146 @@
+---
+# Three-agent hierarchical mesh: one leader routes tasks to two specialist workers.
+# Apply with: kubectl apply -f agent-mesh.yaml
+# Prerequisites: the three Agent CRs below must exist in the same namespace.
+
+# --- Agent 1: Orchestrator (leader) ---
+apiVersion: aumos.ai/v1alpha1
+kind: Agent
+metadata:
+  name: orchestrator-agent
+  namespace: aumos-system
+  labels:
+    app.kubernetes.io/name: orchestrator-agent
+    app.kubernetes.io/part-of: research-mesh
+spec:
+  image: ghcr.io/aumos-ai/agent-base:latest
+  capabilities:
+    - task-decomposition
+    - delegation
+    - result-synthesis
+  replicas: 1
+  model:
+    provider: anthropic
+    name: claude-3-5-sonnet-20241022
+    maxTokens: 8192
+  budget:
+    maxCostPerHour: "2.00"
+    alertThreshold: 0.75
+  trustLevel: trusted
+  env:
+    - name: ANTHROPIC_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: aumos-provider-secrets
+          key: anthropic-api-key
+
+---
+# --- Agent 2: Research worker ---
+apiVersion: aumos.ai/v1alpha1
+kind: Agent
+metadata:
+  name: research-agent
+  namespace: aumos-system
+  labels:
+    app.kubernetes.io/name: research-agent
+    app.kubernetes.io/part-of: research-mesh
+spec:
+  image: ghcr.io/aumos-ai/agent-base:latest
+  capabilities:
+    - web-search
+    - document-retrieval
+    - fact-checking
+  replicas: 2
+  model:
+    provider: openai
+    name: gpt-4o-mini
+    maxTokens: 4096
+  budget:
+    maxCostPerHour: "1.00"
+    alertThreshold: 0.8
+  trustLevel: verified
+  env:
+    - name: OPENAI_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: aumos-provider-secrets
+          key: openai-api-key
+
+---
+# --- Agent 3: Writer worker ---
+apiVersion: aumos.ai/v1alpha1
+kind: Agent
+metadata:
+  name: writer-agent
+  namespace: aumos-system
+  labels:
+    app.kubernetes.io/name: writer-agent
+    app.kubernetes.io/part-of: research-mesh
+spec:
+  image: ghcr.io/aumos-ai/agent-base:latest
+  capabilities:
+    - text-generation
+    - editing
+    - formatting
+  replicas: 1
+  model:
+    provider: anthropic
+    name: claude-3-5-haiku-20241022
+    maxTokens: 4096
+  budget:
+    maxCostPerHour: "0.50"
+    alertThreshold: 0.8
+  trustLevel: verified
+  env:
+    - name: ANTHROPIC_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: aumos-provider-secrets
+          key: anthropic-api-key
+
+---
+# --- AgentMesh: wires the three agents together ---
+apiVersion: aumos.ai/v1alpha1
+kind: AgentMesh
+metadata:
+  name: research-mesh
+  namespace: aumos-system
+  labels:
+    app.kubernetes.io/name: research-mesh
+    app.kubernetes.io/component: mesh
+spec:
+  topology: hierarchical
+
+  agents:
+    - name: orchestrator
+      ref: orchestrator-agent
+      role: leader
+      weight: 10
+    - name: researcher
+      ref: research-agent
+      role: worker
+      weight: 5
+    - name: writer
+      ref: writer-agent
+      role: worker
+      weight: 5
+
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 3
+    recoveryTimeout: "60s"
+    successThreshold: 2
+
+  observability:
+    tracing: true
+    metrics: true
+    costTracking: true
+    logLevel: info
+
+  routing:
+    retryPolicy:
+      maxAttempts: 3
+      backoffSeconds: 1.0
+      backoffMultiplier: 2.0
+    timeoutSeconds: 120
+    deadLetterQueue: true

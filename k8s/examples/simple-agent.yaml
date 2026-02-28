@@ -1,0 +1,49 @@
+---
+# Simple single-agent deployment with basic text-generation capability.
+# Apply with: kubectl apply -f simple-agent.yaml
+apiVersion: aumos.ai/v1alpha1
+kind: Agent
+metadata:
+  name: text-agent
+  namespace: aumos-system
+  labels:
+    app.kubernetes.io/name: text-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: aumos
+spec:
+  image: ghcr.io/aumos-ai/agent-base:latest
+
+  capabilities:
+    - text-generation
+    - summarization
+
+  replicas: 1
+
+  model:
+    provider: anthropic
+    name: claude-3-5-haiku-20241022
+    maxTokens: 4096
+
+  budget:
+    maxCostPerHour: "0.50"
+    maxTokensPerHour: 50000
+    alertThreshold: 0.8
+
+  trustLevel: basic
+
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+  env:
+    - name: ANTHROPIC_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: aumos-provider-secrets
+          key: anthropic-api-key
+    - name: LOG_LEVEL
+      value: "info"

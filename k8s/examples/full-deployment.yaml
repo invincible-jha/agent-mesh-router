@@ -1,0 +1,338 @@
+---
+# Full AumOS production deployment:
+# - Namespace + RBAC
+# - Provider secrets (placeholder values — replace before applying)
+# - AgentPolicy with SOC 2 + GDPR requirements
+# - Three specialised Agent CRs
+# - AgentMesh with circuit-breaker, full observability, and dead-letter queue
+#
+# Apply order (or use --server-side):
+#   kubectl apply -f full-deployment.yaml
+#
+# Watch status:
+#   kubectl get agents,agentmeshes,agentpolicies -n aumos-prod -w
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aumos-prod
+  labels:
+    app.kubernetes.io/name: aumos
+    app.kubernetes.io/managed-by: aumos-operator
+
+---
+# RBAC: ServiceAccount for the operator
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aumos-operator
+  namespace: aumos-prod
+  labels:
+    app.kubernetes.io/name: aumos-operator
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aumos-operator
+rules:
+  - apiGroups: ["aumos.ai"]
+    resources: ["agents", "agentmeshes", "agentpolicies"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["aumos.ai"]
+    resources: ["agents/status", "agentmeshes/status", "agentpolicies/status"]
+    verbs: ["patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "events"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aumos-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aumos-operator
+subjects:
+  - kind: ServiceAccount
+    name: aumos-operator
+    namespace: aumos-prod
+
+---
+# Provider API keys — replace placeholder values with real secrets.
+# Production: use External Secrets Operator or Vault Agent injection instead.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aumos-provider-secrets
+  namespace: aumos-prod
+  labels:
+    app.kubernetes.io/name: aumos
+    app.kubernetes.io/component: secrets
+type: Opaque
+stringData:
+  anthropic-api-key: "REPLACE_WITH_ANTHROPIC_KEY"
+  openai-api-key: "REPLACE_WITH_OPENAI_KEY"
+
+---
+# SOC 2 + GDPR policy applied to all resources in this deployment.
+apiVersion: aumos.ai/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: production-policy
+  namespace: aumos-prod
+  labels:
+    app.kubernetes.io/name: production-policy
+    app.kubernetes.io/component: policy
+    policy.aumos.ai/tier: production
+spec:
+  allowedModels:
+    - claude-3-5-sonnet-20241022
+    - claude-3-5-haiku-20241022
+    - gpt-4o
+    - gpt-4o-mini
+
+  allowedProviders:
+    - anthropic
+    - openai
+
+  maxCostPerDay: "100.00"
+  maxCostPerMonth: "2000.00"
+  maxTokensPerDay: 10000000
+
+  requiredCompliance:
+    - gdpr
+    - soc2
+
+  allowedTools:
+    - web-search
+    - code-execution
+    - document-retrieval
+    - data-analysis
+
+  blockedPatterns:
+    - pattern: "(?i)ignore\\s+(all\\s+)?(previous|prior|above)\\s+instructions?"
+      description: "Prompt injection override."
+      severity: critical
+    - pattern: "(?i)(\\bpassword\\b|\\bsecret\\b|\\bapi[_\\s]key\\b)\\s*[=:]\\s*\\S+"
+      description: "Credential exfiltration attempt."
+      severity: critical
+    - pattern: "(?i)\\b(rm|del|drop|truncate)\\s+(-rf?\\s+/|database|table)"
+      description: "Destructive command injection."
+      severity: high
+
+  auditLevel: full
+
+  rateLimits:
+    requestsPerMinute: 120
+    tokensPerMinute: 500000
+    burstMultiplier: 2.0
+
+  trustRequirements:
+    minTrustLevel: verified
+    requireAttestation: false
+
+  enforcement:
+    onViolation: block
+    alertOnSeverity:
+      - high
+      - critical
+
+---
+# Agent 1: Planning specialist (leader role in the mesh)
+apiVersion: aumos.ai/v1alpha1
+kind: Agent
+metadata:
+  name: planner
+  namespace: aumos-prod
+  labels:
+    app.kubernetes.io/name: planner
+    app.kubernetes.io/component: agent
+    mesh.aumos.ai/role: leader
+spec:
+  image: ghcr.io/aumos-ai/agent-base:latest
+  capabilities:
+    - task-decomposition
+    - planning
+    - delegation
+    - result-synthesis
+  replicas: 1
+  model:
+    provider: anthropic
+    name: claude-3-5-sonnet-20241022
+    maxTokens: 16384
+  budget:
+    maxCostPerHour: "5.00"
+    alertThreshold: 0.75
+  trustLevel: trusted
+  policy: production-policy
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+  env:
+    - name: ANTHROPIC_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: aumos-provider-secrets
+          key: anthropic-api-key
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "http://otel-collector.monitoring:4317"
+    - name: OTEL_SERVICE_NAME
+      value: "aumos-planner"
+
+---
+# Agent 2: Code execution specialist
+apiVersion: aumos.ai/v1alpha1
+kind: Agent
+metadata:
+  name: coder
+  namespace: aumos-prod
+  labels:
+    app.kubernetes.io/name: coder
+    app.kubernetes.io/component: agent
+    mesh.aumos.ai/role: worker
+spec:
+  image: ghcr.io/aumos-ai/agent-base:latest
+  capabilities:
+    - code-generation
+    - code-execution
+    - debugging
+    - testing
+  replicas: 2
+  model:
+    provider: openai
+    name: gpt-4o
+    maxTokens: 8192
+  budget:
+    maxCostPerHour: "3.00"
+    alertThreshold: 0.8
+  trustLevel: verified
+  policy: production-policy
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+  env:
+    - name: OPENAI_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: aumos-provider-secrets
+          key: openai-api-key
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "http://otel-collector.monitoring:4317"
+    - name: OTEL_SERVICE_NAME
+      value: "aumos-coder"
+
+---
+# Agent 3: Quality reviewer
+apiVersion: aumos.ai/v1alpha1
+kind: Agent
+metadata:
+  name: reviewer
+  namespace: aumos-prod
+  labels:
+    app.kubernetes.io/name: reviewer
+    app.kubernetes.io/component: agent
+    mesh.aumos.ai/role: reviewer
+spec:
+  image: ghcr.io/aumos-ai/agent-base:latest
+  capabilities:
+    - code-review
+    - security-scanning
+    - compliance-checking
+    - quality-assurance
+  replicas: 1
+  model:
+    provider: anthropic
+    name: claude-3-5-sonnet-20241022
+    maxTokens: 8192
+  budget:
+    maxCostPerHour: "2.00"
+    alertThreshold: 0.8
+  trustLevel: trusted
+  policy: production-policy
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+  env:
+    - name: ANTHROPIC_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: aumos-provider-secrets
+          key: anthropic-api-key
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "http://otel-collector.monitoring:4317"
+    - name: OTEL_SERVICE_NAME
+      value: "aumos-reviewer"
+
+---
+# AgentMesh: production hierarchical mesh with full observability
+apiVersion: aumos.ai/v1alpha1
+kind: AgentMesh
+metadata:
+  name: production-mesh
+  namespace: aumos-prod
+  labels:
+    app.kubernetes.io/name: production-mesh
+    app.kubernetes.io/component: mesh
+    app.kubernetes.io/part-of: aumos
+  annotations:
+    aumos.ai/description: "Production coding assistant mesh with planning, execution, and review stages."
+spec:
+  topology: hierarchical
+
+  agents:
+    - name: planner
+      ref: planner
+      role: leader
+      weight: 10
+    - name: coder
+      ref: coder
+      role: worker
+      weight: 7
+    - name: reviewer
+      ref: reviewer
+      role: reviewer
+      weight: 5
+
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+    recoveryTimeout: "30s"
+    successThreshold: 2
+
+  observability:
+    tracing: true
+    metrics: true
+    costTracking: true
+    logLevel: info
+
+  routing:
+    retryPolicy:
+      maxAttempts: 3
+      backoffSeconds: 1.0
+      backoffMultiplier: 2.0
+    timeoutSeconds: 300
+    deadLetterQueue: true
+
+  policy: production-policy
