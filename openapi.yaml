@@ -1,0 +1,543 @@
+openapi: "3.1.0"
+
+info:
+  title: Agent Mesh Router API
+  version: "0.2.0"
+  description: |
+    HTTP API for the agent-mesh-router server. Provides endpoints for routing
+    messages between agents in the mesh, managing the fleet registry, and
+    monitoring circuit-breaker and backpressure state.
+
+    Messages are wrapped in a MessageEnvelope that carries routing metadata,
+    delivery semantics (TTL, priority, cost budget), and an opaque payload.
+    The fleet registry tracks live agent nodes and their capabilities.
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8081
+    description: Local development server
+
+tags:
+  - name: messages
+    description: Route and deliver inter-agent message envelopes
+  - name: fleet
+    description: Manage agent node registrations and heartbeats
+  - name: resilience
+    description: Query circuit-breaker and backpressure state
+  - name: health
+    description: Server health check
+
+paths:
+  /messages:
+    post:
+      tags: [messages]
+      operationId: routeMessage
+      summary: Route a message envelope
+      description: |
+        Accepts a MessageEnvelope and routes it to the target agent identified
+        by the receiver field. The broker selects the delivery transport based
+        on available adapters (HTTP, gRPC, Kafka, Redis).
+
+        Special receiver values:
+        - `"*"` — broadcast to all healthy agents subscribed to the topic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageEnvelope"
+            example:
+              sender: "orchestrator-1"
+              receiver: "worker-agent-2"
+              payload:
+                task: "summarize"
+                document_id: "doc-abc"
+                max_words: 200
+              message_type: "task"
+              priority: 2
+              topic: null
+              trace_id: "550e8400-e29b-41d4-a716-446655440000"
+              ttl_seconds: 30.0
+              cost_budget_usd: 0.05
+              metadata:
+                env: "production"
+      responses:
+        "202":
+          description: Message accepted and enqueued for delivery
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouteMessageResponse"
+              example:
+                message_id: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                status: "accepted"
+                receiver: "worker-agent-2"
+        "400":
+          description: Invalid envelope (missing required fields, invalid JSON)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Validation error (expired TTL, invalid priority, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Backpressure active — receiver queue is full
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "Service unavailable"
+                detail: "Backpressure limit reached for receiver 'worker-agent-2'."
+
+  /fleet/nodes:
+    get:
+      tags: [fleet]
+      operationId: listNodes
+      summary: List registered agent nodes
+      description: Returns all nodes in the fleet registry, optionally filtered to healthy-only.
+      parameters:
+        - name: healthy_only
+          in: query
+          required: false
+          description: When true, return only HEALTHY nodes
+          schema:
+            type: boolean
+            default: false
+          example: true
+      responses:
+        "200":
+          description: List of agent nodes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodeListResponse"
+              example:
+                nodes:
+                  - agent_id: "worker-agent-2"
+                    capabilities: ["summarize", "translate"]
+                    status: "HEALTHY"
+                    load_score: 0.3
+                    last_heartbeat: 1700000050.0
+                    metadata:
+                      region: "us-east-1"
+                      version: "2.1.0"
+                total: 1
+
+    post:
+      tags: [fleet]
+      operationId: registerNode
+      summary: Register an agent node
+      description: |
+        Registers a new agent node in the fleet. If a node with the same
+        agent_id already exists it is replaced.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterNodeRequest"
+            example:
+              agent_id: "worker-agent-2"
+              capabilities: ["summarize", "translate"]
+              status: "HEALTHY"
+              load_score: 0.1
+              metadata:
+                region: "us-east-1"
+                version: "2.1.0"
+      responses:
+        "201":
+          description: Node registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentNode"
+        "422":
+          description: Validation error (load_score out of range, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /fleet/nodes/{agent_id}:
+    get:
+      tags: [fleet]
+      operationId: getNode
+      summary: Get a specific agent node
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "worker-agent-2"
+      responses:
+        "200":
+          description: Agent node found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentNode"
+        "404":
+          description: Agent node not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      tags: [fleet]
+      operationId: deregisterNode
+      summary: Deregister an agent node
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "worker-agent-2"
+      responses:
+        "200":
+          description: Node deregistered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id:
+                    type: string
+                  deregistered:
+                    type: boolean
+        "404":
+          description: Agent node not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /fleet/nodes/{agent_id}/heartbeat:
+    post:
+      tags: [fleet]
+      operationId: sendHeartbeat
+      summary: Record a heartbeat for an agent node
+      description: Updates last_heartbeat and optionally load_score or status.
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "worker-agent-2"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HeartbeatRequest"
+            example:
+              load_score: 0.45
+              status: "HEALTHY"
+      responses:
+        "200":
+          description: Heartbeat recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentNode"
+        "404":
+          description: Agent node not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Invalid load_score or status value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /resilience/circuit-breakers:
+    get:
+      tags: [resilience]
+      operationId: listCircuitBreakers
+      summary: List circuit-breaker states
+      description: Returns the current open/closed/half-open state for all tracked circuit breakers.
+      responses:
+        "200":
+          description: Circuit breaker states
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CircuitBreakerListResponse"
+              example:
+                circuit_breakers:
+                  - name: "worker-agent-2"
+                    state: "closed"
+                    failure_count: 0
+                    last_failure_at: null
+                    next_attempt_at: null
+                total: 1
+
+  /health:
+    get:
+      tags: [health]
+      operationId: getHealth
+      summary: Health check
+      description: Returns server status, node count, and queue depth.
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: "ok"
+                service: "agent-mesh-router"
+                version: "0.1.0"
+                node_count: 8
+                queue_depth: 3
+
+components:
+  schemas:
+    MessageEnvelope:
+      type: object
+      description: Universal container for inter-agent messages.
+      required: [sender, receiver, payload]
+      properties:
+        sender:
+          type: string
+          description: Unique ID of the originating agent
+        receiver:
+          type: string
+          description: "Unique ID of the target agent. Use '*' for broadcast."
+        payload:
+          type: object
+          additionalProperties: true
+          description: Arbitrary JSON-serializable data meaningful to the agents
+        message_type:
+          type: string
+          default: "task"
+          description: Semantic message classification
+          enum: [task, response, handoff, ack, error, event, query, notification]
+        priority:
+          type: integer
+          default: 2
+          description: Delivery priority (1=CRITICAL, 2=HIGH, 3=NORMAL, 4=LOW, 5=BACKGROUND)
+          enum: [1, 2, 3, 4, 5]
+        topic:
+          type: string
+          nullable: true
+          default: null
+          description: Optional pub/sub topic for broker-based routing
+        trace_id:
+          type: string
+          format: uuid
+          description: Distributed trace identifier (auto-generated if omitted)
+        parent_message_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: message_id of the message this is responding to
+        message_id:
+          type: string
+          format: uuid
+          description: Unique identifier for this envelope (auto-generated)
+        created_at:
+          type: number
+          format: double
+          description: Unix epoch seconds when the envelope was created
+        ttl_seconds:
+          type: number
+          format: double
+          nullable: true
+          description: Time-to-live in seconds; null disables TTL enforcement
+        cost_budget_usd:
+          type: number
+          format: double
+          nullable: true
+          description: Maximum USD cost the receiving agent should spend
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          default: {}
+
+    RouteMessageResponse:
+      type: object
+      description: Acknowledgement that a message envelope was accepted for routing.
+      required: [message_id, status, receiver]
+      properties:
+        message_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [accepted, rejected]
+        receiver:
+          type: string
+
+    AgentNode:
+      type: object
+      description: A single agent node in the fleet registry.
+      required: [agent_id]
+      properties:
+        agent_id:
+          type: string
+          description: Unique identifier for this agent
+        capabilities:
+          type: array
+          items:
+            type: string
+          default: []
+          description: Capability strings this agent exposes
+        status:
+          type: string
+          default: "HEALTHY"
+          enum: [HEALTHY, UNHEALTHY, DEGRADED, STARTING, STOPPING]
+        load_score:
+          type: number
+          format: double
+          default: 0.0
+          minimum: 0.0
+          maximum: 1.0
+          description: Normalized load [0.0=idle, 1.0=fully loaded]
+        last_heartbeat:
+          type: number
+          format: double
+          description: Unix epoch seconds of the most recent heartbeat
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          default: {}
+
+    RegisterNodeRequest:
+      type: object
+      description: Request body for registering an agent node.
+      required: [agent_id]
+      properties:
+        agent_id:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+          default: []
+        status:
+          type: string
+          default: "HEALTHY"
+          enum: [HEALTHY, UNHEALTHY, DEGRADED, STARTING, STOPPING]
+        load_score:
+          type: number
+          format: double
+          default: 0.0
+          minimum: 0.0
+          maximum: 1.0
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          default: {}
+
+    HeartbeatRequest:
+      type: object
+      description: Optional body for heartbeat — update load_score and/or status.
+      properties:
+        load_score:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0.0
+          maximum: 1.0
+        status:
+          type: string
+          nullable: true
+          enum: [HEALTHY, UNHEALTHY, DEGRADED, STARTING, STOPPING]
+
+    NodeListResponse:
+      type: object
+      description: Paginated list of agent nodes.
+      required: [nodes, total]
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentNode"
+        total:
+          type: integer
+
+    CircuitBreakerState:
+      type: object
+      description: Current state of a single circuit breaker.
+      required: [name, state, failure_count]
+      properties:
+        name:
+          type: string
+          description: Circuit breaker name (typically the target agent_id)
+        state:
+          type: string
+          enum: [closed, open, half_open]
+        failure_count:
+          type: integer
+          description: Number of consecutive failures since last reset
+        last_failure_at:
+          type: number
+          format: double
+          nullable: true
+          description: Unix epoch seconds of the most recent failure
+        next_attempt_at:
+          type: number
+          format: double
+          nullable: true
+          description: Unix epoch seconds when the next attempt will be permitted (open state)
+
+    CircuitBreakerListResponse:
+      type: object
+      required: [circuit_breakers, total]
+      properties:
+        circuit_breakers:
+          type: array
+          items:
+            $ref: "#/components/schemas/CircuitBreakerState"
+        total:
+          type: integer
+
+    HealthResponse:
+      type: object
+      description: Server health information.
+      required: [status, service, version]
+      properties:
+        status:
+          type: string
+          default: "ok"
+        service:
+          type: string
+          default: "agent-mesh-router"
+        version:
+          type: string
+          default: "0.1.0"
+        node_count:
+          type: integer
+          description: Number of nodes currently registered in the fleet
+        queue_depth:
+          type: integer
+          description: Total number of messages currently pending delivery
+
+    ErrorResponse:
+      type: object
+      description: Standard error response body.
+      required: [error]
+      properties:
+        error:
+          type: string
+        detail:
+          type: string
+          default: ""
