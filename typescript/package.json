@@ -16,6 +16,9 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@aumos/sdk-core": "file:../../aumos-sdk-core"
+  },
   "devDependencies": {
     "typescript": "^5.3.0"
   },

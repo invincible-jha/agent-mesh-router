@@ -1,8 +1,12 @@
 /**
  * HTTP client for the agent-mesh-router service API.
  *
- * Uses the Fetch API (available natively in Node 18+, browsers, and Deno).
- * No external dependencies required.
+ * Delegates all HTTP transport to `@aumos/sdk-core` which provides
+ * automatic retry with exponential back-off, timeout management via
+ * `AbortSignal.timeout`, interceptor support, and a typed error hierarchy.
+ *
+ * The public-facing `ApiResult<T>` envelope is preserved for full
+ * backward compatibility with existing callers.
  *
  * @example
  * ```ts
@@ -10,7 +14,6 @@
  *
  * const client = createAgentMeshRouterClient({ baseUrl: "http://localhost:8080" });
  *
- * // Send a task message to an agent
  * const result = await client.sendMessage({
  *   recipient_id: "summarizer-agent",
  *   message_type: "task",
@@ -20,21 +23,20 @@
  * if (result.ok) {
  *   console.log("Message dispatched:", result.data.message_id);
  * }
- *
- * // Execute a sequential workflow
- * const workflow = await client.routeTask({
- *   pattern: "sequential",
- *   steps: [
- *     { agent_id: "reader", action: "extract", params: {}, timeout_seconds: 30, depends_on: [] },
- *     { agent_id: "writer", action: "summarize", params: {}, timeout_seconds: 60, depends_on: [] },
- *   ],
- * });
  * ```
  */
 
+import {
+  createHttpClient,
+  HttpError,
+  NetworkError,
+  TimeoutError,
+  AumosError,
+  type HttpClient,
+} from "@aumos/sdk-core";
+
 import type {
   AgentRoute,
-  ApiError,
   ApiResult,
   CircuitBreakerStatus,
   ConflictResolution,
@@ -60,55 +62,51 @@ export interface AgentMeshRouterClientConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// Internal adapter
 // ---------------------------------------------------------------------------
 
-async function fetchJson<T>(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number,
+async function callApi<T>(
+  operation: () => Promise<{ readonly data: T; readonly status: number }>,
 ): Promise<ApiResult<T>> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    const body = await response.json() as unknown;
-
-    if (!response.ok) {
-      const errorBody = body as Partial<ApiError>;
+    const response = await operation();
+    return { ok: true, data: response.data };
+  } catch (error: unknown) {
+    if (error instanceof HttpError) {
       return {
         ok: false,
-        error: {
-          error: errorBody.error ?? "Unknown error",
-          detail: errorBody.detail ?? "",
-        },
-        status: response.status,
+        error: { error: error.message, detail: String(error.body ?? "") },
+        status: error.statusCode,
       };
     }
-
-    return { ok: true, data: body as T };
-  } catch (err: unknown) {
-    clearTimeout(timeoutId);
-    const message = err instanceof Error ? err.message : String(err);
+    if (error instanceof TimeoutError) {
+      return {
+        ok: false,
+        error: { error: "Request timed out", detail: error.message },
+        status: 0,
+      };
+    }
+    if (error instanceof NetworkError) {
+      return {
+        ok: false,
+        error: { error: "Network error", detail: error.message },
+        status: 0,
+      };
+    }
+    if (error instanceof AumosError) {
+      return {
+        ok: false,
+        error: { error: error.code, detail: error.message },
+        status: error.statusCode ?? 0,
+      };
+    }
+    const message = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      error: { error: "Network error", detail: message },
+      error: { error: "Unexpected error", detail: message },
       status: 0,
     };
   }
-}
-
-function buildHeaders(
-  extraHeaders: Readonly<Record<string, string>> | undefined,
-): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    ...extraHeaders,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -120,9 +118,6 @@ export interface AgentMeshRouterClient {
   /**
    * Dispatch a message to a target agent in the mesh.
    *
-   * Supports all MessageType variants (task, query, broadcast, etc.).
-   * Returns the created Message record including the assigned message_id.
-   *
    * @param request - Message dispatch payload with recipient and type.
    * @returns The created Message record with message_id and metadata.
    */
@@ -130,13 +125,6 @@ export interface AgentMeshRouterClient {
 
   /**
    * Execute a multi-step workflow through the agent mesh.
-   *
-   * The workflow pattern controls how steps are coordinated:
-   * - sequential: steps run one after another in order
-   * - parallel: all steps run concurrently with fan-out/fan-in
-   * - hierarchical: a supervisor agent delegates to sub-agents
-   * - competitive: all steps race; first result wins
-   * - consensus: results are collected and voted upon
    *
    * @param request - Workflow execution request with pattern and steps.
    * @returns AgentRoute with per-step results, status, and total duration.
@@ -153,10 +141,6 @@ export interface AgentMeshRouterClient {
   /**
    * Retrieve the status of a named circuit breaker.
    *
-   * Circuit breakers protect mesh routes from cascading failures. This
-   * endpoint returns the current state (closed/open/half_open) and
-   * cumulative call/rejection counts.
-   *
    * @param circuitName - The human-readable circuit breaker name.
    * @returns CircuitBreakerStatus snapshot with state and counters.
    */
@@ -164,10 +148,6 @@ export interface AgentMeshRouterClient {
 
   /**
    * Resolve a conflict between competing agent outputs.
-   *
-   * Used after competitive or consensus workflows produce disagreeing results.
-   * The configured resolution strategy (majority, weighted, supervisor, etc.)
-   * determines how a winner is selected or synthesized.
    *
    * @param request - Conflict resolution request with competing outputs.
    * @returns ConflictResolution with the resolved output and winning agent.
@@ -190,67 +170,39 @@ export interface AgentMeshRouterClient {
 export function createAgentMeshRouterClient(
   config: AgentMeshRouterClientConfig,
 ): AgentMeshRouterClient {
-  const { baseUrl, timeoutMs = 30_000, headers: extraHeaders } = config;
-  const baseHeaders = buildHeaders(extraHeaders);
+  const http: HttpClient = createHttpClient({
+    baseUrl: config.baseUrl,
+    timeout: config.timeoutMs ?? 30_000,
+    defaultHeaders: config.headers,
+  });
 
   return {
-    async sendMessage(
-      request: SendMessageRequest,
-    ): Promise<ApiResult<Message>> {
-      return fetchJson<Message>(
-        `${baseUrl}/messages`,
-        {
-          method: "POST",
-          headers: baseHeaders,
-          body: JSON.stringify(request),
-        },
-        timeoutMs,
-      );
+    sendMessage(request: SendMessageRequest): Promise<ApiResult<Message>> {
+      return callApi(() => http.post<Message>("/messages", request));
     },
 
-    async routeTask(request: RouteTaskRequest): Promise<ApiResult<AgentRoute>> {
-      return fetchJson<AgentRoute>(
-        `${baseUrl}/workflows`,
-        {
-          method: "POST",
-          headers: baseHeaders,
-          body: JSON.stringify(request),
-        },
-        timeoutMs,
-      );
+    routeTask(request: RouteTaskRequest): Promise<ApiResult<AgentRoute>> {
+      return callApi(() => http.post<AgentRoute>("/workflows", request));
     },
 
-    async getTopology(): Promise<ApiResult<MeshTopology>> {
-      return fetchJson<MeshTopology>(
-        `${baseUrl}/topology`,
-        { method: "GET", headers: baseHeaders },
-        timeoutMs,
-      );
+    getTopology(): Promise<ApiResult<MeshTopology>> {
+      return callApi(() => http.get<MeshTopology>("/topology"));
     },
 
-    async getCircuitBreakerStatus(
+    getCircuitBreakerStatus(
       circuitName: string,
     ): Promise<ApiResult<CircuitBreakerStatus>> {
-      return fetchJson<CircuitBreakerStatus>(
-        `${baseUrl}/circuit-breakers/${encodeURIComponent(circuitName)}`,
-        { method: "GET", headers: baseHeaders },
-        timeoutMs,
+      return callApi(() =>
+        http.get<CircuitBreakerStatus>(
+          `/circuit-breakers/${encodeURIComponent(circuitName)}`,
+        ),
       );
     },
 
-    async resolveConflict(
-      request: ResolveConflictRequest,
-    ): Promise<ApiResult<ConflictResolution>> {
-      return fetchJson<ConflictResolution>(
-        `${baseUrl}/conflicts/resolve`,
-        {
-          method: "POST",
-          headers: baseHeaders,
-          body: JSON.stringify(request),
-        },
-        timeoutMs,
+    resolveConflict(request: ResolveConflictRequest): Promise<ApiResult<ConflictResolution>> {
+      return callApi(() =>
+        http.post<ConflictResolution>("/conflicts/resolve", request),
       );
     },
   };
 }
-

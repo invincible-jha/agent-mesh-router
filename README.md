@@ -21,6 +21,14 @@ Part of the [AumOS](https://github.com/aumos-ai) open-source agent infrastructur
 - `MessageEnvelope` with typed priority levels, routing metadata, TTL, and checksum validation for tamper detection
 - OpenTelemetry tracing middleware that adds trace context propagation to every routed message
 
+## Current Limitations
+
+> **Transparency note**: We list known limitations to help you evaluate fit.
+
+- **Topology**: In-memory routing table. No persistent topology storage.
+- **Protocol**: Custom ACP envelopes only. No A2A protocol compatibility yet.
+- **Scale**: Single-process message broker. No distributed routing.
+
 ## Quick Start
 
 Install from PyPI:

@@ -28,6 +28,9 @@ plugins
     Plugin registry with entry-point loading.
 cli
     Command-line interface.
+a2a
+    A2A v0.3 protocol compatibility — agent cards, task lifecycle,
+    discovery endpoint, and ACP-to-A2A bridge.
 
 Example
 -------
@@ -215,9 +218,53 @@ from agent_mesh_router.resilience.health_check import (
     HealthStatus,
 )
 
+# ------------------------------------------------------------------
+# a2a
+# ------------------------------------------------------------------
+try:
+    from agent_mesh_router.a2a import (
+        A2AMessage,
+        A2ATask,
+        ACPBridge,
+        ACPBridgeError,
+        AgentCapabilities,
+        AgentCard,
+        AgentCardError,
+        AgentCardGenerator,
+        AgentSkill,
+        Artifact,
+        DiscoveryEndpoint,
+        InvalidTaskTransitionError,
+        MessagePart,
+        TaskManager,
+        TaskNotFoundError,
+        TaskState,
+        TaskStatus,
+    )
+except ImportError:
+    pass  # pydantic not available (should not happen — it is a core dep)
+
 __all__: list[str] = [
     "__version__",
     "Router",
+    # a2a
+    "A2AMessage",
+    "A2ATask",
+    "ACPBridge",
+    "ACPBridgeError",
+    "AgentCapabilities",
+    "AgentCard",
+    "AgentCardError",
+    "AgentCardGenerator",
+    "AgentSkill",
+    "Artifact",
+    "DiscoveryEndpoint",
+    "InvalidTaskTransitionError",
+    "MessagePart",
+    "TaskManager",
+    "TaskNotFoundError",
+    "TaskState",
+    "TaskStatus",
     # messages
     "HandoffMetrics",
     "MessageEnvelope",
